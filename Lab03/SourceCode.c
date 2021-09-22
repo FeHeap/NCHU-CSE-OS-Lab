@@ -1,0 +1,28 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+
+int main(void) {
+	if(!seteuid(0)) {
+		printf("Set effective uid to 0 successfully!\n");
+	}
+	else {
+		printf("Error! Fail to set effective uid.\n");
+	}
+
+	FILE *cptr;
+	int temp;
+	printf("my real id=%d\n", getuid());
+	printf("my effective id=%d\n", geteuid());
+	cptr = fopen("datafile", "a");
+	if(cptr == NULL) {
+		printf("can't open file!\n");
+		exit(1);
+	}
+	fprintf(cptr, "my real id=%d\n", getuid());
+	fprintf(cptr, "my effective id=%d\n", geteuid());
+	fclose(cptr);
+
+	return 0;
+}
