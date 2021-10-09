@@ -51,3 +51,9 @@ Use "dmesg" to see the log file.
 $ dmesg
 ```
 (You can use "dmesg | tail" to view tail only.)
+
+#### rmmod
+Use "rmmod" to remove module. (root needed)
+```
+$ sudo rmmod hello_module
+```
