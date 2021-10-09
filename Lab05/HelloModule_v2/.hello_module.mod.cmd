@@ -1,0 +1,1 @@
+cmd_/home/fe/Desktop/NCHU-CSE-OS-Lab/Lab05/HelloModule_v2/hello_module.mod := { echo  /home/fe/Desktop/NCHU-CSE-OS-Lab/Lab05/HelloModule_v2/hello_module.o; echo; } > /home/fe/Desktop/NCHU-CSE-OS-Lab/Lab05/HelloModule_v2/hello_module.mod

@@ -16,12 +16,17 @@ int symbol_function(int x) {
 }
 
 int init_module(void) {
-        printk(KERN_INFO "module_A insert successfully\n");
+        printk(KERN_INFO "Insert module_A successfully\n");
         return 0;
 }
 
 void cleanup_module(void) {
-        printk(KERN_INFO "module_A remove successfully\n");
+        printk(KERN_INFO "Remove module_A successfully\n");
 }
 
 EXPORT_SYMBOL(symbol_function);
+
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("FE");
+MODULE_DESCRIPTION("OSLAB_MODULE: module_A");
