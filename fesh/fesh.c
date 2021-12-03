@@ -8,25 +8,35 @@
 #include <readline/history.h>
 #define TRUE 1
 
-char buff[200], initialpwdBuff[200], lineHeadBuff[200];
+char pwdBuff[200], initialpwdBuff[200], lineHeadBuff[200];
+
 
 void init();
 void commandProcess(char*);
+int commandStart = 0;
 
 int main() {
 	
 	init();
 
-	char *ss;
 	while(TRUE) {
-		getcwd(buff, sizeof(buff));
-		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s~\033[m$", getenv("USER"), getenv("USER"), &buff[strlen(initialpwdBuff)]);
-		ss = readline(lineHeadBuff);
-		if(strlen(ss) != 0 && !isspace(ss[0])) {
-			add_history(ss);
+		commandStart = 0;
+		char *commandBuff;
+		getcwd(pwdBuff, sizeof(pwdBuff));
+		if(strlen(pwdBuff) >= strlen(initialpwdBuff)) {
+			sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s~\033[m$", getenv("USER"), getenv("USER"), &pwdBuff[strlen(initialpwdBuff)]);
 		}
-		commandProcess(ss);
-		free(ss);
+		else {
+			sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s\033[m$", getenv("USER"), getenv("USER"), pwdBuff);
+		}
+		
+		commandBuff = readline(lineHeadBuff);
+		if(strlen(commandBuff) != 0 && !isspace(commandBuff[0])) {
+			add_history(commandBuff + commandStart);
+		}
+		rl_done = 0;
+		commandProcess(commandBuff + commandStart);
+		free(commandBuff);
 	}
 		
 	return 0;
@@ -75,7 +85,7 @@ void commandProcess(char *command) {
 		pointCmd = pointCmd->next;
 	}
 	if(pointCmd) {
-		char *funcReturn = pointCmd->cmdFunc(NULL);
+		char *funcReturn = pointCmd->cmdFunc(command+i);
 	}
 	else {
 		printf("%s: command not found\n", command);	
@@ -85,11 +95,73 @@ void commandProcess(char *command) {
 
 /* internal command functions */
 char* cmd_cd(char *data) {
-	printf("cd inst\n");
+	int i = 0;
+	while(isspace(data[i])) { i++; }
+	if(data[i] == '\0') {
+		chdir(initialpwdBuff);
+		return NULL;	
+	}
+
+	data = data + i;
+	int len = strlen(data);
+	int j = 0;
+	int argumentDetectState = 1;
+	int spaceOK = 0;
+	int endArgIndex = len;
+	int k;
+	for(k = 0; k < len; k++) {
+		if(data[j] == '"') { spaceOK = !spaceOK; j++; }
+		else if(argumentDetectState == 1 && (!isspace(data[j]) || spaceOK)) { j++; }
+		else if(argumentDetectState == 1 && isspace(data[j])) { endArgIndex = j++; argumentDetectState = 2; }
+		else if(argumentDetectState == 2 && isspace(data[j])) { j++; }
+		else { argumentDetectState = 3; break; }
+	}
+	
+	if(argumentDetectState == 3) {
+		printf("fesh: cd: too many arguments\n");
+		return NULL;
+	}
+	
+	data[endArgIndex] = '\0';
+	if(data[i] == '/') {
+		if(chdir(data)) {
+			printf("fesh: cd: %s: No such file or directory\n", data);
+		}
+	}
+	else {
+		getcwd(pwdBuff, sizeof(pwdBuff));
+		strcat(pwdBuff, "/");
+		strcat(pwdBuff, data);
+		if(chdir(pwdBuff)) {
+			printf("fesh: cd: %s: No such file or directory\n", data);
+		}
+	}
+
 	return NULL;
 }
 char* cmd_echo(char *data) {
-	printf("echo inst\n");
+	int i = 0;
+	while(isspace(data[i])) { i++; }
+	data = data + i;
+
+	int len = strlen(data);
+	int inStringState = 0;
+	for(i = 0; i < len; i++) {
+		if(data[i] == '\\' && data[i+1] == '"') {
+			i++;
+		}
+		else if(data[i] == '"') {
+			inStringState = !inStringState;
+			continue;		
+		}
+		printf("%c", data[i]);
+		if(!inStringState && isspace(data[i])) {
+			while(isspace(data[i])) { i++; }
+			i--;
+		}		
+	}
+	printf("\n");
+
 	return NULL;
 }
 char* cmd_export(char *data) {
@@ -97,7 +169,8 @@ char* cmd_export(char *data) {
 	return NULL;
 }
 char* cmd_pwd(char *data) {
-	printf("pwd inst\n");
+	getcwd(pwdBuff, sizeof(pwdBuff));
+	printf("%s\n", pwdBuff);
 	return NULL;
 }
 
@@ -114,9 +187,16 @@ void shell_close(int sig_num) {
 }
 
 void shell_no_close(int sig_num) {
-	getcwd(buff, sizeof(buff));
-	sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s~\033[m$", getenv("USER"), getenv("USER"), &buff[strlen(initialpwdBuff)]);
+
+	getcwd(pwdBuff, sizeof(pwdBuff));
+	if(strlen(pwdBuff) >= strlen(initialpwdBuff)) {
+		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s~\033[m$", getenv("USER"), getenv("USER"), &pwdBuff[strlen(initialpwdBuff)]);
+	}
+	else {
+		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s\033[m$", getenv("USER"), getenv("USER"), pwdBuff);
+	}
 	printf("\n%s", lineHeadBuff);
+	commandStart = rl_end;
 }
 
 
@@ -135,7 +215,7 @@ void init() {
 	cmdInit();	
 	
 	sprintf(initialpwdBuff, "/home/%s", getenv("USER"));	
-	chdir(initialpwdBuff);	
+	chdir(initialpwdBuff);
 }
 
 void insertCmd(char *cmd, func_v_s func) {
@@ -191,7 +271,7 @@ void cmdInit() {
 }
 
 void cmdTerm() {
-	int i;	
+	int i;
 	for(i = 0; i < NumberOfCmd; i++) {
 		if(cmdTable[i].cmdName == NULL) {
 			continue;		
