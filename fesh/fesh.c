@@ -6,9 +6,15 @@
 #include <sys/wait.h>
 #include <readline/readline.h>
 #include <readline/history.h>
+#define PwdBufferSize 200
+#define EvnBufferSize 2000
 #define TRUE 1
+#define FALSE 0
 
-char pwdBuff[200], initialpwdBuff[200], lineHeadBuff[200];
+FILE *fout;
+
+char feshHistoryPwd[PwdBufferSize];
+char pwdBuff[PwdBufferSize], initialpwdBuff[PwdBufferSize], lineHeadBuff[PwdBufferSize];
 
 
 void init();
@@ -24,10 +30,10 @@ int main() {
 		char *commandBuff;
 		getcwd(pwdBuff, sizeof(pwdBuff));
 		if(strlen(pwdBuff) >= strlen(initialpwdBuff)) {
-			sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s~\033[m$", getenv("USER"), getenv("USER"), &pwdBuff[strlen(initialpwdBuff)]);
+			sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m~%s\033[m$ ", getenv("USER"), getenv("USER"), &pwdBuff[strlen(initialpwdBuff)]);
 		}
 		else {
-			sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s\033[m$", getenv("USER"), getenv("USER"), pwdBuff);
+			sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s\033[m$ ", getenv("USER"), getenv("USER"), pwdBuff);
 		}
 		
 		commandBuff = readline(lineHeadBuff);
@@ -49,16 +55,94 @@ int stringHashCode(char *String) {
 	for(i = 0; i < len; i++) {
 		hashCode += String[i] * 31 ^ (len - i);
 	}
-	return hashCode;
+	return abs(hashCode);
+}
+
+int pwdDetermine(char *string) {
+	int len = strlen(string);
+	int i;
+	enum state {
+		start,
+		n1,
+		gate,
+		death,
+		n2,
+		n3,
+		accept,
+	} point;
+	point = start;
+	for(i = 0; i < len; i++) {
+		char alphabet = string[i];
+		switch(point) {
+			case start:
+				if(alphabet == '.') {
+					point = n1;
+				}
+				else if(alphabet == '/') {
+					point = gate;
+				}
+				else {
+					point = n1;
+				}
+				break;
+			case n1:
+				if(alphabet == '/') {
+					point = gate;
+				}
+				break;
+			case gate:
+				if(alphabet == '.') {
+					point = n2;
+				}
+				else if(alphabet == '/') {
+					point = death;
+				}
+				else {
+					point = accept;
+				}
+				break;
+			case n2:
+				if(alphabet == '.') {
+					point = n3;
+				}
+				else if(alphabet == '/') {
+					point = gate;
+				}
+				else {
+					point = accept;
+				}
+				break;
+			case n3:
+				if(alphabet == '.') {
+					point = accept;
+				}
+				else if(alphabet == '/') {
+					point = gate;
+				}
+				else {
+					point = accept;
+				}
+				break;
+			case accept:
+				if(alphabet == '/') {
+					point = gate;
+				}
+				break;
+			default: // death
+				break;
+		}
+	}
+	if(point == accept) { return TRUE; }
+	else { return FALSE; }
 }
 
 
 
 #define NumberOfCmd 4
-typedef char* (*func_v_s)(char*);
+typedef char* (*func_s_iss)(int, char* []);
 struct cmdUnit {
 	char *cmdName;	
-	func_v_s cmdFunc;
+	func_s_iss cmdFunc;
 	struct cmdUnit *next;
 } cmdTable[NumberOfCmd];
 
@@ -68,110 +152,275 @@ void commandProcess(char *command) {
 	while(isspace(command[i])) { i++; }
 	if(command[i] == '\0') { return; }
 	else { command = command + i; }
-	i = 0;	
-	while(!isspace(command[i]) && command[i] != '\0') { i++; }
-	if(command[i] == '\0') {  }
-	else { command[i++] = '\0'; }
-	int index = stringHashCode(command) % NumberOfCmd;
-	if(cmdTable[index].cmdName == NULL) { 
-		printf("%s: command not found\n", command);
-		return; 
-	}
-	struct cmdUnit *pointCmd = cmdTable + index;
-	while(pointCmd != NULL) {
-		if(!strcmp(command, pointCmd->cmdName)) {
-			break;
+	int inStringState = 0;
+	i = 0;
+
+	while(!isspace(command[i]) || inStringState == 1) {
+		if(command[i] == '"') {
+			inStringState = !inStringState;
 		}
-		pointCmd = pointCmd->next;
+		else if(command[i] == '\\') {
+			i++;
+		}
+		else if(command[i] == '\0') {
+			break;				
+		}
+		i++;
 	}
-	if(pointCmd) {
-		char *funcReturn = pointCmd->cmdFunc(command+i);
+
+	int argFlag = FALSE;
+	if(command[i] != '\0') {
+		argFlag = TRUE;
+		command[i++] = '\0';
+	}
+	
+	struct cmdUnit *pointCmd = NULL;
+	int pwdFlag = pwdDetermine(command);
+	if(!pwdFlag) {
+		int index = stringHashCode(command) % NumberOfCmd;
+		if(cmdTable[index].cmdName == NULL) {
+			printf("%s: command not found\n", command);
+			return; 
+		}
+		pointCmd = cmdTable + index;
+		while(pointCmd != NULL) {
+			if(!strcmp(command, pointCmd->cmdName)) {
+				break;
+			}
+			pointCmd = pointCmd->next;
+		}
+		if(pointCmd == NULL) {
+			printf("%s: command not found\n", command);	
+			return; 
+		}
+	}
+	
+	
+	int argc = 0;
+	char **argv = NULL;
+	
+	if(argFlag) {
+		char *data = command + i;
+		i = 0;
+		inStringState = 0;
+		while(TRUE) {
+			while(isspace(data[i])) { i++; }
+			if(data[i] == '\0') {
+				break;		
+			}
+
+			argc++;
+			while(!isspace(data[i]) || inStringState == 1) {
+				if(data[i] == '"') {
+					inStringState = !inStringState;
+				}
+				else if(data[i] == '\\') {
+					i++;
+				}
+				else if(data[i] == '\0') {
+					break;				
+				}
+				i++;
+			}
+			if(data[i] == '\0') {
+				break;		
+			}		
+		}
+
+		if(argc > 0) {
+			argv = (char**)malloc((argc+1) * sizeof(char*));
+			argv[argc] = NULL;
+			i = 0;
+			int j = 0;
+			inStringState = 0;
+			while(TRUE) {
+				while(isspace(data[i])) { i++; }
+				argv[j++] = data + i;
+				while(!isspace(data[i]) || inStringState == 1) {
+					if(data[i] == '"') {
+						inStringState = !inStringState;
+					}
+					else if(data[i] == '\\') {
+						i++;
+					}
+					else if(data[i] == '\0') {
+						break;				
+					}
+					i++;
+				}
+				if(data[i] == '\0') {
+					break;		
+				}
+				else {
+					data[i++] = '\0';
+				}		
+			}
+		}
+	}
+
+	if(pwdFlag) {
+		if(fork() == 0) { // will edit <----------------------------
+			execvp(command, argv);
+		}
+		wait(NULL);
 	}
 	else {
-		printf("%s: command not found\n", command);	
-		return; 
+		char *funcReturn = pointCmd->cmdFunc(argc, argv);
+	
+
+		if(funcReturn != NULL) {
+			if(argc >= 2) {
+				if(!strcmp(argv[argc-2], ">>")) {
+					fout = fopen(argv[argc-1], "a");
+					fprintf(fout, "%s", funcReturn);
+					fclose(fout);
+				}
+				else if(!strcmp(argv[argc-2], ">")) {
+					fout = fopen(argv[argc-1], "w");
+					fprintf(fout, "%s", funcReturn);
+					fclose(fout);
+				}
+			}
+			else if(argc >= 1) {
+				if(argv[argc-1][0] == '>' && argv[argc-1][1] == '>') {
+					if(argv[argc-1][3] != '\0') {
+						fout = fopen(argv[argc-1]+2, "a");
+						fprintf(fout, "%s", funcReturn);
+						fclose(fout);
+					}
+					else {
+						printf("fesh: syntax error near unexpected token `newline'\n");
+					}
+					
+				}
+				else if(argv[argc-1][0] == '>') {
+					if(argv[argc-1][2] != '\0') {
+						fout = fopen(argv[argc-1]+1, "w");
+						fprintf(fout, "%s", funcReturn);
+						fclose(fout);
+					}
+					else {
+						printf("fesh: syntax error near unexpected token `newline'\n");
+					}
+				}
+			}
+			else {
+				printf("%s\n", funcReturn);
+			}
+		}
+		
+		free(funcReturn);
 	}
+	
+	free(argv);	
 }
 
+
 /* internal command functions */
-char* cmd_cd(char *data) {
-	int i = 0;
-	while(isspace(data[i])) { i++; }
-	if(data[i] == '\0') {
+char* cmd_cd(int argc, char* argv[]) {
+	if(argc > 1) {
+		printf("fesh: cd: too many arguments\n");
+		return NULL;
+	}	
+
+	if(argc == 0) {
 		chdir(initialpwdBuff);
 		return NULL;	
 	}
-
-	data = data + i;
-	int len = strlen(data);
-	int j = 0;
-	int argumentDetectState = 1;
-	int spaceOK = 0;
-	int endArgIndex = len;
-	int k;
-	for(k = 0; k < len; k++) {
-		if(data[j] == '"') { spaceOK = !spaceOK; j++; }
-		else if(argumentDetectState == 1 && (!isspace(data[j]) || spaceOK)) { j++; }
-		else if(argumentDetectState == 1 && isspace(data[j])) { endArgIndex = j++; argumentDetectState = 2; }
-		else if(argumentDetectState == 2 && isspace(data[j])) { j++; }
-		else { argumentDetectState = 3; break; }
-	}
 	
-	if(argumentDetectState == 3) {
-		printf("fesh: cd: too many arguments\n");
-		return NULL;
-	}
-	
-	data[endArgIndex] = '\0';
-	if(data[i] == '/') {
-		if(chdir(data)) {
-			printf("fesh: cd: %s: No such file or directory\n", data);
+	if(argv[0][0] == '/') {
+		if(chdir(argv[0])) {
+			printf("fesh: cd: %s: No such file or directory\n", argv[0]);
 		}
 	}
 	else {
 		getcwd(pwdBuff, sizeof(pwdBuff));
 		strcat(pwdBuff, "/");
-		strcat(pwdBuff, data);
+		strcat(pwdBuff, argv[0]);
 		if(chdir(pwdBuff)) {
-			printf("fesh: cd: %s: No such file or directory\n", data);
+			printf("fesh: cd: %s: No such file or directory\n", argv[0]);
 		}
 	}
 
 	return NULL;
 }
-char* cmd_echo(char *data) {
-	int i = 0;
-	while(isspace(data[i])) { i++; }
-	data = data + i;
 
-	int len = strlen(data);
-	int inStringState = 0;
-	for(i = 0; i < len; i++) {
-		if(data[i] == '\\' && data[i+1] == '"') {
-			i++;
+char* cmd_echo(int argc, char* argv[]) {
+	
+	char words = 0;
+	int i;
+	for(i = 0; i < argc; i++) {
+		if((i == argc-2 && (!strcmp(argv[i], ">") || !strcmp(argv[i], ">>"))) || (i == argc-1 && argv[i][0] == '>')) {
+			break;
 		}
-		else if(data[i] == '"') {
-			inStringState = !inStringState;
-			continue;		
-		}
-		printf("%c", data[i]);
-		if(!inStringState && isspace(data[i])) {
-			while(isspace(data[i])) { i++; }
-			i--;
-		}		
+		words += strlen(argv[i]);
 	}
-	printf("\n");
+	
+	char *echo = (char*)malloc(words * sizeof(char));
+	int k = 0;
+	for(i = 0; i < argc; i++) {
+		if((i == argc-2 && (!strcmp(argv[i], ">") || !strcmp(argv[i], ">>"))) || (i == argc-1 && argv[i][0] == '>')) {
+			break;
+		}
 
-	return NULL;
+		int j, len;
+		if(argv[i][0] == '"') {
+			j = 1;
+			len = strlen(argv[i])-1;
+		}
+		else {
+			j = 0;
+			len = strlen(argv[i]);
+		}
+		for(; j < len; j++) {
+			if(argv[i][j] == '\\') {
+				j++;
+			}
+			echo[k++] = argv[i][j];
+		}
+		echo[k++] = ' ';
+	}
+	echo[k-1] = '\0';
+
+	return echo;
 }
-char* cmd_export(char *data) {
-	printf("export inst\n");
-	return NULL;
+
+char* cmd_export(int argc, char* argv[]) {
+
+	char *export = NULL;
+
+	if(argc == 2) {
+		if(!strcmp(argv[1], ">>") || !strcmp(argv[1], ">")) {
+			export = (char*)malloc(EvnBufferSize * sizeof(char));
+			sprintf(export, "declare -x PATH=\"%s\"", getenv("PATH"));
+		}
+	}
+	else if(argc == 1) {
+		if(argv[0][0] == '>') {
+			export = (char*)malloc(EvnBufferSize * sizeof(char));
+			sprintf(export, "declare -x PATH=\"%s\"", getenv("PATH"));
+		}
+		else {
+			char envNameBuff[20];
+			sprintf(envNameBuff, "%[^=\0]", argv[0]);
+			int envNameLen = strlen(envNameBuff);
+			if(argv[0][envNameLen] == '=') {
+				setenv(envNameBuff, argv[0]+envNameLen+1, 1);
+			}
+		}
+	}
+	else if(argc == 0) {
+		export = (char*)malloc(EvnBufferSize * sizeof(char));
+		sprintf(export, "declare -x PATH=\"%s\"", getenv("PATH"));
+	}
+
+	return export;
 }
-char* cmd_pwd(char *data) {
-	getcwd(pwdBuff, sizeof(pwdBuff));
-	printf("%s\n", pwdBuff);
-	return NULL;
+
+char* cmd_pwd(int argc, char* argv[]) {
+	char *pwd = (char*)malloc(PwdBufferSize * sizeof(char));
+	getcwd(pwd, PwdBufferSize * sizeof(char));
+	return pwd;
 }
 
 
@@ -182,6 +431,7 @@ void cmdTerm();
 
 void shell_close(int sig_num) {
 	printf("interrupt!\n");
+	write_history(feshHistoryPwd);
 	cmdTerm();
 	exit(EXIT_SUCCESS);
 }
@@ -212,13 +462,17 @@ void init() {
 	signal(SIGIOT, shell_close);
 	signal(SIGTRAP, shell_close);
 	
-	cmdInit();	
-	
+	cmdInit();
+
+	getcwd(feshHistoryPwd, sizeof(feshHistoryPwd));
+	strcat(feshHistoryPwd, "/.history");
+	read_history(feshHistoryPwd);
+
 	sprintf(initialpwdBuff, "/home/%s", getenv("USER"));	
 	chdir(initialpwdBuff);
 }
 
-void insertCmd(char *cmd, func_v_s func) {
+void insertCmd(char *cmd, func_s_iss func) {
 	int index = stringHashCode(cmd) % NumberOfCmd;
 	if(cmdTable[index].cmdName == NULL) {
 		cmdTable[index].cmdName = cmd;
