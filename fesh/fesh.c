@@ -59,81 +59,16 @@ int stringHashCode(char *String) {
 }
 
 int pwdDetermine(char *string) {
+	int returnFlag = FALSE;
 	int len = strlen(string);
 	int i;
-	enum state {
-		start,
-		n1,
-		gate,
-		death,
-		n2,
-		n3,
-		accept,
-	} point;
-	point = start;
 	for(i = 0; i < len; i++) {
-		char alphabet = string[i];
-		switch(point) {
-			case start:
-				if(alphabet == '.') {
-					point = n1;
-				}
-				else if(alphabet == '/') {
-					point = gate;
-				}
-				else {
-					point = n1;
-				}
-				break;
-			case n1:
-				if(alphabet == '/') {
-					point = gate;
-				}
-				break;
-			case gate:
-				if(alphabet == '.') {
-					point = n2;
-				}
-				else if(alphabet == '/') {
-					point = death;
-				}
-				else {
-					point = accept;
-				}
-				break;
-			case n2:
-				if(alphabet == '.') {
-					point = n3;
-				}
-				else if(alphabet == '/') {
-					point = gate;
-				}
-				else {
-					point = accept;
-				}
-				break;
-			case n3:
-				if(alphabet == '.') {
-					point = accept;
-				}
-				else if(alphabet == '/') {
-					point = gate;
-				}
-				else {
-					point = accept;
-				}
-				break;
-			case accept:
-				if(alphabet == '/') {
-					point = gate;
-				}
-				break;
-			default: // death
-				break;
+		if(string[i] == '/') {
+			returnFlag = TRUE;
+			break;		
 		}
 	}
-	if(point == accept) { return TRUE; }
-	else { return FALSE; }
+	return returnFlag;
 }
 
 
@@ -175,27 +110,19 @@ void commandProcess(char *command) {
 	}
 	
 	struct cmdUnit *pointCmd = NULL;
-	int pwdFlag = pwdDetermine(command);
-	if(!pwdFlag) {
-		int index = stringHashCode(command) % NumberOfCmd;
-		if(cmdTable[index].cmdName == NULL) {
-			printf("%s: command not found\n", command);
-			return; 
-		}
+
+	int index = stringHashCode(command) % NumberOfCmd;
+	if(cmdTable[index].cmdName != NULL) {
 		pointCmd = cmdTable + index;
 		while(pointCmd != NULL) {
 			if(!strcmp(command, pointCmd->cmdName)) {
 				break;
 			}
 			pointCmd = pointCmd->next;
-		}
-		if(pointCmd == NULL) {
-			printf("%s: command not found\n", command);	
-			return; 
-		}
+		}		
 	}
-	
-	
+		
+		
 	int argc = 0;
 	char **argv = NULL;
 	
@@ -228,7 +155,7 @@ void commandProcess(char *command) {
 		}
 
 		if(argc > 0) {
-			argv = (char**)malloc((argc+1) * sizeof(char*));
+			argv = (char**)malloc(argc * sizeof(char*));
 			argv[argc] = NULL;
 			i = 0;
 			int j = 0;
@@ -258,9 +185,26 @@ void commandProcess(char *command) {
 		}
 	}
 
-	if(pwdFlag) {
-		if(fork() == 0) { // will edit <----------------------------
-			execvp(command, argv);
+	if(pointCmd == NULL) {
+		if(fork() == 0) {
+			
+			char** exec_argv = (char**)malloc((argc+2) * sizeof(char*));
+			exec_argv[0] = command;
+			exec_argv[argc+1] = NULL;
+			for(i = 0; i < argc; i++) {
+				exec_argv[i+1] = argv[i];
+			}
+			
+						
+			if(execvp(command, exec_argv) == -1) {
+				if(pwdDetermine(command) == TRUE) {
+					printf("fesh: %s: No such file\n", command);
+				}
+				else {
+					printf("%s: command not found\n", command);
+				}
+				exit(EXIT_FAILURE);
+			}
 		}
 		wait(NULL);
 	}
