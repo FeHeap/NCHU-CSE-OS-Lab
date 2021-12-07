@@ -3,6 +3,9 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -187,16 +190,65 @@ void commandProcess(char *command) {
 
 	if(pointCmd == NULL) {
 		if(fork() == 0) {
+			int exec_argc = argc;
+			int change_stdout_flag = 0;
+			if(argc >= 2) {
+				if(!strcmp(argv[argc-2], ">>")) {
+					fout = fopen(argv[argc-1], "a");
+					change_stdout_flag = 1;
+					exec_argc -= 2;
+				}
+				else if(!strcmp(argv[argc-2], ">")) {
+					fout = fopen(argv[argc-1], "w");
+					change_stdout_flag = 1;
+					exec_argc -= 2;
+				}
+			}
+			else if(argc >= 1) {
+				if(argv[argc-1][0] == '>' && argv[argc-1][1] == '>') {
+					if(argv[argc-1][3] != '\0') {
+						fout = fopen(argv[argc-1]+2, "a");
+						change_stdout_flag = 1;
+						exec_argc -= 1;
+					}
+					else {
+						printf("fesh: syntax error near unexpected token `newline'\n");
+						exit(EXIT_FAILURE);
+					}
+					
+				}
+				else if(argv[argc-1][0] == '>') {
+					if(argv[argc-1][2] != '\0') {
+						fout = fopen(argv[argc-1]+1, "w");
+						change_stdout_flag = 1;
+						exec_argc -= 1;
+					}
+					else {
+						printf("fesh: syntax error near unexpected token `newline'\n");
+						exit(EXIT_FAILURE);
+					}
+				}
+			}
 			
-			char** exec_argv = (char**)malloc((argc+2) * sizeof(char*));
+			char** exec_argv = (char**)malloc((exec_argc+2) * sizeof(char*));
+
 			exec_argv[0] = command;
-			exec_argv[argc+1] = NULL;
-			for(i = 0; i < argc; i++) {
+			exec_argv[exec_argc+1] = NULL;
+			for(i = 0; i < exec_argc; i++) {
 				exec_argv[i+1] = argv[i];
 			}
 			
+			int save_fd;
+			dup2(STDOUT_FILENO, save_fd);
+			if(change_stdout_flag == 1) {
+				int fd = fileno(fout);				
+				dup2(fd, STDOUT_FILENO);
+			}
 						
 			if(execvp(command, exec_argv) == -1) {
+				if(change_stdout_flag == 1) {				
+					dup2(save_fd, STDOUT_FILENO);
+				}
 				if(pwdDetermine(command) == TRUE) {
 					printf("fesh: %s: No such file\n", command);
 				}
@@ -486,4 +538,3 @@ void cmdTerm() {
 		}
 	}
 }
-
