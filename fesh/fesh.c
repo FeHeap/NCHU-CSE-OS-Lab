@@ -15,14 +15,13 @@
 #define FALSE 0
 
 FILE *fout;
-
 char feshHistoryPwd[PwdBufferSize];
 char pwdBuff[PwdBufferSize], initialpwdBuff[PwdBufferSize], lineHeadBuff[PwdBufferSize];
+int commandStart = 0;
 
 
 void init();
 void commandProcess(char*);
-int commandStart = 0;
 
 int main() {
 	
@@ -75,6 +74,8 @@ int pwdDetermine(char *string) {
 }
 
 
+void when_wait(int);
+void when_fork(int);
 
 #define NumberOfCmd 4
 typedef char* (*func_s_iss)(int, char* []);
@@ -107,11 +108,16 @@ void commandProcess(char *command) {
 	}
 
 	int argFlag = FALSE;
+	int bgFlag = FALSE;
+	if(command[i-1] == '&') {
+		bgFlag = TRUE;
+		command[i-1] = '\0';
+	}
 	if(command[i] != '\0') {
 		argFlag = TRUE;
 		command[i++] = '\0';
 	}
-	
+
 	struct cmdUnit *pointCmd = NULL;
 
 	int index = stringHashCode(command) % NumberOfCmd;
@@ -128,7 +134,7 @@ void commandProcess(char *command) {
 		
 	int argc = 0;
 	char **argv = NULL;
-	
+
 	if(argFlag) {
 		char *data = command + i;
 		i = 0;
@@ -159,7 +165,6 @@ void commandProcess(char *command) {
 
 		if(argc > 0) {
 			argv = (char**)malloc(argc * sizeof(char*));
-			argv[argc] = NULL;
 			i = 0;
 			int j = 0;
 			inStringState = 0;
@@ -185,6 +190,15 @@ void commandProcess(char *command) {
 					data[i++] = '\0';
 				}		
 			}
+
+			if(argv[argc-1][0] == '&' && argv[argc-1][1] == '\0') {
+				bgFlag = TRUE;
+				argc--;
+			}
+			else if(argv[argc-1][strlen(argv[argc-1])-1] == '&') {
+				bgFlag = TRUE;
+				argv[argc-1][strlen(argv[argc-1])-1] = '\0';
+			}
 		}
 	}
 
@@ -206,8 +220,9 @@ void commandProcess(char *command) {
 			}
 			else if(argc >= 1) {
 				if(argv[argc-1][0] == '>' && argv[argc-1][1] == '>') {
-					if(argv[argc-1][3] != '\0') {
-						fout = fopen(argv[argc-1]+2, "a");
+					if(argv[argc-1][2] != '\0') {
+						argv[argc-1]+=2;
+						fout = fopen(argv[argc-1], "a");
 						change_stdout_flag = 1;
 						exec_argc -= 1;
 					}
@@ -218,8 +233,9 @@ void commandProcess(char *command) {
 					
 				}
 				else if(argv[argc-1][0] == '>') {
-					if(argv[argc-1][2] != '\0') {
-						fout = fopen(argv[argc-1]+1, "w");
+					if(argv[argc-1][1] != '\0') {
+						argv[argc-1]++;
+						fout = fopen(argv[argc-1], "w");
 						change_stdout_flag = 1;
 						exec_argc -= 1;
 					}
@@ -237,16 +253,20 @@ void commandProcess(char *command) {
 			for(i = 0; i < exec_argc; i++) {
 				exec_argv[i+1] = argv[i];
 			}
-			
+			when_fork(bgFlag);
+
 			int save_fd;
-			dup2(STDOUT_FILENO, save_fd);
-			if(change_stdout_flag == 1) {
-				int fd = fileno(fout);				
+			if(change_stdout_flag == TRUE) {
+				printf("");
+				save_fd = dup(STDOUT_FILENO);
+				fout = fopen(argv[argc-1], "w");
+				int fd = fileno(fout);
 				dup2(fd, STDOUT_FILENO);
 			}
-						
+
 			if(execvp(command, exec_argv) == -1) {
-				if(change_stdout_flag == 1) {				
+				if(change_stdout_flag == 1) {
+					fclose(fout);				
 					dup2(save_fd, STDOUT_FILENO);
 				}
 				if(pwdDetermine(command) == TRUE) {
@@ -258,11 +278,14 @@ void commandProcess(char *command) {
 				exit(EXIT_FAILURE);
 			}
 		}
-		wait(NULL);
+		else {
+			when_wait(bgFlag);
+		}
+		
 	}
 	else {
+
 		char *funcReturn = pointCmd->cmdFunc(argc, argv);
-	
 
 		if(funcReturn != NULL) {
 			if(argc >= 2) {
@@ -271,15 +294,18 @@ void commandProcess(char *command) {
 					fprintf(fout, "%s", funcReturn);
 					fclose(fout);
 				}
-				else if(!strcmp(argv[argc-2], ">")) {
+				else if(!strcmp(argv[argc-2], ">")) {					
 					fout = fopen(argv[argc-1], "w");
 					fprintf(fout, "%s", funcReturn);
 					fclose(fout);
 				}
+				else {
+					printf("%s\n", funcReturn);
+				}
 			}
 			else if(argc >= 1) {
 				if(argv[argc-1][0] == '>' && argv[argc-1][1] == '>') {
-					if(argv[argc-1][3] != '\0') {
+					if(argv[argc-1][2] != '\0') {
 						fout = fopen(argv[argc-1]+2, "a");
 						fprintf(fout, "%s", funcReturn);
 						fclose(fout);
@@ -290,7 +316,7 @@ void commandProcess(char *command) {
 					
 				}
 				else if(argv[argc-1][0] == '>') {
-					if(argv[argc-1][2] != '\0') {
+					if(argv[argc-1][1] != '\0') {
 						fout = fopen(argv[argc-1]+1, "w");
 						fprintf(fout, "%s", funcReturn);
 						fclose(fout);
@@ -298,6 +324,9 @@ void commandProcess(char *command) {
 					else {
 						printf("fesh: syntax error near unexpected token `newline'\n");
 					}
+				}
+				else {
+					printf("%s\n", funcReturn);
 				}
 			}
 			else {
@@ -326,6 +355,13 @@ char* cmd_cd(int argc, char* argv[]) {
 	
 	if(argv[0][0] == '/') {
 		if(chdir(argv[0])) {
+			printf("fesh: cd: %s: No such file or directory\n", argv[0]);
+		}
+	}
+	else if(argv[0][0] == '~') {
+		strcpy(pwdBuff, initialpwdBuff);
+		strcat(pwdBuff, argv[0]+1);
+		if(chdir(pwdBuff)) {
 			printf("fesh: cd: %s: No such file or directory\n", argv[0]);
 		}
 	}
@@ -397,11 +433,12 @@ char* cmd_export(int argc, char* argv[]) {
 			sprintf(export, "declare -x PATH=\"%s\"", getenv("PATH"));
 		}
 		else {
-			char envNameBuff[20];
-			sprintf(envNameBuff, "%[^=\0]", argv[0]);
-			int envNameLen = strlen(envNameBuff);
-			if(argv[0][envNameLen] == '=') {
-				setenv(envNameBuff, argv[0]+envNameLen+1, 1);
+			char *envNameBuff = argv[0];
+			int i;			
+			for(i = 0; argv[0][i] != '=' && argv[0][i] != '\0'; i++);
+			if(argv[0][i] == '=') {
+				argv[0][i] = '\0';
+				setenv(envNameBuff, argv[0]+i+1, 1);
 			}
 		}
 	}
@@ -425,6 +462,10 @@ char* cmd_pwd(int argc, char* argv[]) {
 void cmdInit();
 void cmdTerm();
 
+void child_signal_handler_INT(int sig_num) {
+	exit(EXIT_SUCCESS);
+}
+
 void shell_close(int sig_num) {
 	printf("interrupt!\n");
 	write_history(feshHistoryPwd);
@@ -436,15 +477,25 @@ void shell_no_close(int sig_num) {
 
 	getcwd(pwdBuff, sizeof(pwdBuff));
 	if(strlen(pwdBuff) >= strlen(initialpwdBuff)) {
-		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s~\033[m$", getenv("USER"), getenv("USER"), &pwdBuff[strlen(initialpwdBuff)]);
+		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m~%s\033[m$ ", getenv("USER"), getenv("USER"), &pwdBuff[strlen(initialpwdBuff)]);
 	}
 	else {
-		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s\033[m$", getenv("USER"), getenv("USER"), pwdBuff);
+		sprintf(lineHeadBuff, "\033[1;32m%s@%s-fesh\033[m:\033[1;34m%s\033[m$ ", getenv("USER"), getenv("USER"), pwdBuff);
 	}
 	printf("\n%s", lineHeadBuff);
 	commandStart = rl_end;
 }
 
+/* TODO: catch ctrl + Z
+void shell_bg(int sig_num) {
+	
+}
+*/
+
+void shell_wait_child(int sig_num) {
+	int status;
+	pid_t childPid = waitpid(-1, &status, WNOHANG);
+}
 
 
 void init() {
@@ -457,6 +508,8 @@ void init() {
 	signal(SIGBUS, shell_close);
 	signal(SIGIOT, shell_close);
 	signal(SIGTRAP, shell_close);
+	// signal(SIGTSTP, shell_bg);
+	signal(SIGCHLD, shell_wait_child);
 	
 	cmdInit();
 
@@ -536,5 +589,26 @@ void cmdTerm() {
 				free(temp);
 			}
 		}
+	}
+}
+
+/* for fork */
+void when_fork(int bgFlag) {
+	if(bgFlag == TRUE) {
+		signal(SIGINT, SIG_IGN);
+	}
+	else {
+		signal(SIGINT, child_signal_handler_INT);
+	}
+}
+
+void when_wait(int bgFlag) {
+	if(bgFlag == TRUE) {
+		// pass
+	}
+	else {	
+		signal(SIGINT, SIG_IGN);
+		wait(NULL);
+		signal(SIGINT, shell_no_close);
 	}
 }
