@@ -42,7 +42,6 @@ int main() {
 		if(strlen(commandBuff) != 0 && !isspace(commandBuff[0])) {
 			add_history(commandBuff + commandStart);
 		}
-		rl_done = 0;
 		commandProcess(commandBuff + commandStart);
 		free(commandBuff);
 	}
